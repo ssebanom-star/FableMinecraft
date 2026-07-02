@@ -52,8 +52,11 @@ class App:
             if w is not None:
                 w.enabled = False
 
-        # 한글 폰트 적용 (UI 생성 전에 해야 함)
-        fonts.apply_korean_font()
+        # 한글 폰트 적용 (UI 생성 전, 실패해도 게임 실행은 계속)
+        try:
+            fonts.apply_korean_font()
+        except Exception as e:
+            print(f"[fonts] 폰트 적용 건너뜀: {e}")
 
         # 최대 FPS 제한
         max_fps = int(config.get("max_fps"))
