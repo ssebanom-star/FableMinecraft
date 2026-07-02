@@ -79,6 +79,19 @@ python main.py
 시작 메뉴에서 **새 월드**(이름/시드/모드 선택) 또는 **월드 불러오기**를
 선택하면 게임이 시작됩니다. 시드가 같으면 항상 같은 월드가 생성됩니다.
 
+### 한글이 □ 로 깨져 보일 때
+
+실행 시 OS 의 한글 폰트(맑은 고딕/Apple SD Gothic/나눔·Noto)를 자동으로
+찾아 적용합니다. 그래도 깨지면 (리눅스 서버 등 한글 폰트가 없는 환경)
+아무 한글 TTF 폰트를 `assets/font.ttf` 로 복사해 주세요:
+
+```bash
+# 예: 우분투에서 나눔고딕 설치 후 사용
+sudo apt install fonts-nanum
+mkdir -p assets
+cp /usr/share/fonts/truetype/nanum/NanumGothic.ttf assets/font.ttf
+```
+
 ## 3. 조작법
 
 | 키 | 동작 |
@@ -126,6 +139,7 @@ lighting.py           하늘빛 + 블록빛(BFS) 조명
 physics.py            AABB 복셀 충돌, 중력
 utils.py              노이즈, 레이캐스트(DDA), 수학 헬퍼
 textures.py           절차적 텍스처 아틀라스 생성 (PIL)
+fonts.py              OS 한글 폰트 자동 탐색/적용
 requirements.txt
 README.md
 web/                  웹(모바일) 버전 - 순수 WebGL/JS

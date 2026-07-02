@@ -12,6 +12,7 @@ from ursina import Ursina, Entity, window, mouse, invoke, destroy
 from panda3d.core import ClockObject
 
 import config
+import fonts
 from game import Game
 from ui import GameUI, MainMenu
 from utils import set_mouse_locked
@@ -50,6 +51,9 @@ class App:
             w = getattr(window, widget, None)
             if w is not None:
                 w.enabled = False
+
+        # 한글 폰트 적용 (UI 생성 전에 해야 함)
+        fonts.apply_korean_font()
 
         # 최대 FPS 제한
         max_fps = int(config.get("max_fps"))
