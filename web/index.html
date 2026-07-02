@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Blockworld Web</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box;
+      -webkit-user-select:none; user-select:none;
+      -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#000;
+              font-family:'Segoe UI',system-ui,sans-serif; color:#fff;
+              touch-action:none; overscroll-behavior:none;
+              position:fixed; inset:0; }
+  #glcanvas { position:absolute; inset:0; width:100%; height:100%;
+              display:block; touch-action:none; }
+
+  /* ---------- HUD ---------- */
+  .hud { position:absolute; pointer-events:none; z-index:10; }
+  #crosshair { left:50%; top:50%; transform:translate(-50%,-50%);
+               font-size:22px; color:rgba(255,255,255,.85);
+               text-shadow:0 0 3px #000; }
+  #breakbar { left:50%; top:calc(50% + 22px); transform:translateX(-50%);
+              width:60px; height:5px; background:rgba(0,0,0,.5);
+              border-radius:3px; overflow:hidden; display:none; }
+  #breakfill { width:0%; height:100%; background:#fff; }
+  #stats { left:10px; top:calc(8px + env(safe-area-inset-top)); }
+  .bar { width:130px; height:11px; background:rgba(0,0,0,.55);
+         border-radius:5px; margin-bottom:4px; overflow:hidden;
+         border:1px solid rgba(255,255,255,.25); }
+  .bar>div { height:100%; border-radius:4px; transition:width .15s; }
+  #hp>div { background:#d33; } #hg>div { background:#d88427; }
+  #st>div { background:#4c4; } #ox>div { background:#3a8dd8; }
+  #info { left:10px; top:calc(72px + env(safe-area-inset-top));
+          font-size:11px; line-height:1.5; text-shadow:0 1px 2px #000;
+          opacity:.9; }
+  #debug { right:10px; top:calc(8px + env(safe-area-inset-top));
+           font-size:10px; line-height:1.45; text-align:right;
+           text-shadow:0 1px 2px #000; display:none; white-space:pre; }
+  #targetname { left:50%; top:calc(50% - 42px); transform:translateX(-50%);
+                font-size:12px; text-shadow:0 1px 3px #000; opacity:.85; }
+  #toast { left:50%; bottom:170px; transform:translateX(-50%);
+           font-size:13px; text-shadow:0 1px 3px #000; opacity:0;
+           transition:opacity .4s; }
+
+  /* ---------- 핫바 ---------- */
+  #hotbar { position:absolute; left:50%; transform:translateX(-50%);
+            bottom:calc(10px + env(safe-area-inset-bottom));
+            display:flex; gap:4px; z-index:20; }
+  .hslot { width:42px; height:42px; background:rgba(15,15,20,.72);
+           border:2px solid rgba(255,255,255,.22); border-radius:6px;
+           position:relative; pointer-events:auto; }
+  .hslot.sel { border-color:#fff; background:rgba(60,60,70,.8); }
+  .swatch { position:absolute; inset:8px; border-radius:4px; }
+  .cnt { position:absolute; right:3px; bottom:1px; font-size:11px;
+         text-shadow:0 1px 2px #000; }
+  #selname { position:absolute; left:50%; transform:translateX(-50%);
+             bottom:calc(58px + env(safe-area-inset-bottom));
+             font-size:12px; text-shadow:0 1px 3px #000; z-index:10;
+             pointer-events:none; }
+
+  /* ---------- 터치 컨트롤 ---------- */
+  #joystick { position:absolute; left:calc(24px + env(safe-area-inset-left));
+              bottom:calc(80px + env(safe-area-inset-bottom));
+              width:120px; height:120px; border-radius:50%;
+              background:rgba(255,255,255,.08);
+              border:2px solid rgba(255,255,255,.25); z-index:30;
+              touch-action:none; display:none; }
+  #knob { position:absolute; left:50%; top:50%;
+          transform:translate(-50%,-50%); width:52px; height:52px;
+          border-radius:50%; background:rgba(255,255,255,.30); }
+  .tbtns { position:absolute; right:calc(16px + env(safe-area-inset-right));
+           bottom:calc(80px + env(safe-area-inset-bottom));
+           display:none; flex-direction:column; gap:10px; z-index:30; }
+  .tbtn { width:58px; height:58px; border-radius:50%;
+          background:rgba(255,255,255,.14);
+          border:2px solid rgba(255,255,255,.3); color:#fff;
+          font-size:20px; display:flex; align-items:center;
+          justify-content:center; touch-action:none; }
+  .tbtn:active,.tbtn.on { background:rgba(255,255,255,.4); }
+  .trow { display:flex; gap:10px; }
+  #topbtns { position:absolute; right:calc(10px + env(safe-area-inset-right));
+             top:calc(8px + env(safe-area-inset-top)); display:flex; gap:8px;
+             z-index:30; }
+  .sqbtn { min-width:40px; height:36px; padding:0 10px; border-radius:8px;
+           background:rgba(15,15,20,.7); border:1px solid
+           rgba(255,255,255,.3); color:#fff; font-size:13px;
+           display:flex; align-items:center; justify-content:center;
+           pointer-events:auto; }
+
+  /* ---------- 패널/메뉴 ---------- */
+  .overlay { position:absolute; inset:0; background:rgba(0,0,0,.65);
+             z-index:100; display:none; align-items:center;
+             justify-content:center; }
+  .panel { background:#16181f; border:1px solid #3a3f4e; border-radius:12px;
+           padding:18px; max-width:92vw; max-height:86vh; overflow-y:auto;
+           min-width:min(480px,90vw); }
+  .panel h2 { font-size:17px; margin-bottom:12px; }
+  .mbtn { display:block; width:100%; padding:11px; margin:7px 0;
+          background:#2a2f3d; color:#fff; border:1px solid #444b5e;
+          border-radius:8px; font-size:14px; text-align:center; }
+  .mbtn:active { background:#3d4356; }
+  .mbtn.green { background:#274d27; border-color:#3e7a3e; }
+  input[type=text] { width:100%; padding:9px; margin:5px 0 10px;
+          background:#0d0f14; border:1px solid #444b5e; color:#fff;
+          border-radius:6px; font-size:14px; }
+  .grid { display:grid; grid-template-columns:repeat(9,minmax(30px,38px));
+          gap:4px; justify-content:center; margin:8px 0; }
+  .gslot { aspect-ratio:1; background:#22252f; border:2px solid #3a3f4e;
+           border-radius:5px; position:relative; }
+  .gslot.sel { border-color:#e8d44d; }
+  .recipe { display:flex; align-items:center; gap:10px; padding:8px;
+            margin:5px 0; background:#22252f; border-radius:8px;
+            border:1px solid #3a3f4e; }
+  .recipe.no { opacity:.4; }
+  .ricon { width:30px; height:30px; border-radius:5px; flex-shrink:0; }
+  .rtxt { flex:1; font-size:12px; line-height:1.4; }
+  .rbtn { padding:8px 14px; background:#274d27; border:1px solid #3e7a3e;
+          color:#fff; border-radius:7px; font-size:13px; }
+  .rbtn:disabled { background:#333; border-color:#444; opacity:.5; }
+  .tabs { display:flex; gap:6px; margin-bottom:10px; }
+  .tab { flex:1; padding:8px; text-align:center; background:#22252f;
+         border-radius:7px; font-size:13px; border:1px solid #3a3f4e; }
+  .tab.on { background:#3d4356; border-color:#8891ad; }
+  .hint { font-size:11px; opacity:.65; margin-top:8px; line-height:1.5; }
+  #deathoverlay { background:rgba(90,10,10,.75); }
+  .row { display:flex; gap:8px; }
+  .row .mbtn { flex:1; }
+  #loading { position:absolute; inset:0; background:#0a0c10; z-index:200;
+             display:none; align-items:center; justify-content:center;
+             font-size:16px; }
+</style>
+</head>
+<body>
+<canvas id="glcanvas"></canvas>
+
+<!-- HUD -->
+<div id="crosshair" class="hud">+</div>
+<div id="breakbar" class="hud"><div id="breakfill"></div></div>
+<div id="targetname" class="hud"></div>
+<div id="stats" class="hud">
+  <div class="bar" id="hp"><div style="width:100%"></div></div>
+  <div class="bar" id="hg"><div style="width:100%"></div></div>
+  <div class="bar" id="st"><div style="width:100%"></div></div>
+  <div class="bar" id="ox"><div style="width:100%"></div></div>
+</div>
+<div id="info" class="hud"></div>
+<div id="debug" class="hud"></div>
+<div id="toast" class="hud"></div>
+<div id="hotbar"></div>
+<div id="selname"></div>
+
+<!-- 터치 컨트롤 -->
+<div id="joystick"><div id="knob"></div></div>
+<div class="tbtns" id="tbtns">
+  <div class="trow">
+    <div class="tbtn" id="btn-break">⛏</div>
+    <div class="tbtn" id="btn-use">✋</div>
+  </div>
+  <div class="trow">
+    <div class="tbtn" id="btn-jump">▲</div>
+    <div class="tbtn" id="btn-down" style="display:none">▼</div>
+  </div>
+</div>
+<div id="topbtns">
+  <div class="sqbtn" id="btn-inv">가방</div>
+  <div class="sqbtn" id="btn-pause">☰</div>
+</div>
+
+<!-- 메인 메뉴 -->
+<div class="overlay" id="menu" style="display:flex">
+  <div class="panel">
+    <h2 style="font-size:26px;color:#7fc36a;text-align:center">BLOCKWORLD</h2>
+    <p style="text-align:center;font-size:12px;opacity:.7;margin-bottom:14px">
+      웹 브라우저용 복셀 샌드박스 생존 게임 (PC / 모바일)</p>
+    <button class="mbtn green" id="btn-continue" style="display:none">이어하기</button>
+    <input type="text" id="seed-input" placeholder="시드 (비우면 랜덤)">
+    <div class="row">
+      <button class="mbtn" id="btn-new-surv">새 게임 (서바이벌)</button>
+      <button class="mbtn" id="btn-new-crea">새 게임 (크리에이티브)</button>
+    </div>
+    <div class="hint">
+      <b>PC:</b> 클릭으로 시점 잠금 · WASD 이동 · Space 점프 · Shift 달리기 ·
+      좌클릭 파괴 · 우클릭 설치/상호작용 · E 가방 · Q 버리기 · C 모드 · F3 디버그<br>
+      <b>모바일:</b> 왼쪽 조이스틱 이동 · 화면 드래그 시점 · ⛏ 길게 파괴 ·
+      ✋ 설치/상호작용 · ▲ 점프(물속 헤엄)
+    </div>
+  </div>
+</div>
+
+<!-- 일시정지 -->
+<div class="overlay" id="pause">
+  <div class="panel">
+    <h2>일시정지</h2>
+    <button class="mbtn" id="btn-resume">계속하기</button>
+    <button class="mbtn" id="btn-save">저장</button>
+    <button class="mbtn" id="btn-rd">렌더 거리: 2</button>
+    <button class="mbtn" id="btn-tomenu">저장하고 메뉴로</button>
+  </div>
+</div>
+
+<!-- 사망 -->
+<div class="overlay" id="deathoverlay">
+  <div class="panel" style="text-align:center">
+    <h2 style="font-size:24px">사망했습니다</h2>
+    <button class="mbtn green" id="btn-respawn">리스폰</button>
+  </div>
+</div>
+
+<!-- 인벤토리 / 제작 -->
+<div class="overlay" id="invoverlay">
+  <div class="panel">
+    <div class="tabs">
+      <div class="tab on" id="tab-inv">인벤토리</div>
+      <div class="tab" id="tab-craft">제작</div>
+    </div>
+    <div id="invpane">
+      <div class="grid" id="invgrid"></div>
+      <div class="row">
+        <button class="mbtn" id="btn-drop1">1개 버리기</button>
+        <button class="mbtn" id="btn-close-inv">닫기</button>
+      </div>
+      <div class="hint">칸을 탭해 선택 → 다른 칸을 탭하면 이동/합치기.
+        선택한 칸을 다시 탭하면 해제. 아래 9칸이 핫바.</div>
+    </div>
+    <div id="craftpane" style="display:none">
+      <div id="craftlist"></div>
+      <button class="mbtn" id="btn-close-craft">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 화로 -->
+<div class="overlay" id="furnaceoverlay">
+  <div class="panel">
+    <h2>화로</h2>
+    <div id="furnacestatus" style="font-size:13px;margin-bottom:8px"></div>
+    <div id="smeltlist"></div>
+    <button class="mbtn" id="btn-close-furnace">닫기</button>
+  </div>
+</div>
+
+<!-- 상자 -->
+<div class="overlay" id="chestoverlay">
+  <div class="panel">
+    <h2>상자</h2>
+    <div style="font-size:12px;opacity:.7">상자</div>
+    <div class="grid" id="chestgrid"></div>
+    <div style="font-size:12px;opacity:.7">내 인벤토리 (탭하면 상자로 이동)</div>
+    <div class="grid" id="chestinvgrid"></div>
+    <button class="mbtn" id="btn-close-chest">닫기</button>
+  </div>
+</div>
+
+<div id="loading">월드 생성 중...</div>
+
+<script src="js/util.js"></script>
+<script src="js/blocks.js"></script>
+<script src="js/world.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/player.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

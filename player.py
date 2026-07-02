@@ -381,12 +381,12 @@ class Player:
         if self.game.world.get_block(x, y, z) != B.AIR:
             return False
 
-        # 플레이어 몸과 겹침 검사
+        # 플레이어 AABB 와 겹침 검사
         if bdef.collision_box:
             px, py, pz = self.position
-            if (abs(x + 0.5 - px) < 0.8 + self.body.half_width and
-                    abs(z + 0.5 - pz) < 0.8 + self.body.half_width and
-                    py - 1 < y < py + self.body.height):
+            if (abs(x + 0.5 - px) < 0.5 + self.body.half_width and
+                    abs(z + 0.5 - pz) < 0.5 + self.body.half_width and
+                    y + 1 > py and y < py + self.body.height):
                 return False
 
         self.game.world.set_block(x, y, z, bdef.id)
