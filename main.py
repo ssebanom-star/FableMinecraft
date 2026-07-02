@@ -103,5 +103,29 @@ class App:
         self.app.run()
 
 
+def _run_with_crash_log():
+    """예외 발생 시 전체 트레이스백을 crash_log.txt 에 남기고
+    콘솔이 바로 닫히지 않게 한다 (윈도우 더블클릭 실행 대비)."""
+    import sys
+    import traceback
+    try:
+        App().run()
+    except Exception:
+        text = traceback.format_exc()
+        print(text)
+        try:
+            with open("crash_log.txt", "w", encoding="utf-8") as f:
+                f.write(text)
+            print("\n[!] 오류 내용이 crash_log.txt 에 저장되었습니다.")
+        except OSError:
+            pass
+        if sys.stdin is not None and sys.stdin.isatty():
+            try:
+                input("종료하려면 Enter 를 누르세요...")
+            except (EOFError, KeyboardInterrupt):
+                pass
+        raise SystemExit(1)
+
+
 if __name__ == "__main__":
-    App().run()
+    _run_with_crash_log()
