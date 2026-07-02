@@ -335,7 +335,8 @@
       this.computeLight(c);
       const B = BLK.B, OP = BLK.OPAQUE, AL = BLK.ALPHA;
       const x0 = c.cx * CH, z0 = c.cz * CH;
-      const solid = { pos: [], col: [] }, alpha = { pos: [], col: [] };
+      const solid = { pos: [], col: [], uv: [] };
+      const alpha = { pos: [], col: [], uv: [] };
       const bx = c.bx, light = c.light;
 
       const FACES = [
@@ -357,12 +358,23 @@
           return .16 + .84 * light[idx(lx, ly, lz)] / 15;
         return 1;
       }
-      function quad(t, pts, r, g, b, a) {
+      function quad(t, pts, r, g, b, a, uv4) {
         const order = [0, 1, 2, 0, 2, 3];
         for (const o of order) {
           t.pos.push(pts[o][0], pts[o][1], pts[o][2]);
           t.col.push(r, g, b, a);
+          t.uv.push(uv4[o][0], uv4[o][1]);
         }
+      }
+      function faceUVs(tileIdx, dx, dy, dz, corners) {
+        const [u0, v0, span] = TEX.uv(tileIdx);
+        return corners.map(cn => {
+          let u, w;
+          if (dy !== 0) { u = cn[0]; w = cn[2]; }
+          else if (dx !== 0) { u = cn[2]; w = cn[1]; }
+          else { u = cn[0]; w = cn[1]; }
+          return [u0 + u * span, v0 + w * span];
+        });
       }
 
       for (let lx = 0; lx < CH; lx++) {
@@ -375,14 +387,15 @@
 
             if (def.cross) {
               const lv = faceLight(lx, ly, lz);
-              const cl = def.col;
-              const h = def.name === 'torch' ? .65 : .8;
-              quad(solid, [[wx+.15,wy,wz+.15],[wx+.15,wy+h,wz+.15],
-                           [wx+.85,wy+h,wz+.85],[wx+.85,wy,wz+.85]],
-                   cl[0]*lv, cl[1]*lv, cl[2]*lv, 1);
-              quad(solid, [[wx+.85,wy,wz+.15],[wx+.85,wy+h,wz+.15],
-                           [wx+.15,wy+h,wz+.85],[wx+.15,wy,wz+.85]],
-                   cl[0]*lv, cl[1]*lv, cl[2]*lv, 1);
+              const [u0, v0, span] = TEX.uv((TEX.MAP[id] || [0, 0, 0])[1]);
+              const cuv = [[u0, v0], [u0, v0 + span],
+                           [u0 + span, v0 + span], [u0 + span, v0]];
+              quad(solid, [[wx+.15,wy,wz+.15],[wx+.15,wy+1,wz+.15],
+                           [wx+.85,wy+1,wz+.85],[wx+.85,wy,wz+.85]],
+                   lv, lv, lv, 1, cuv);
+              quad(solid, [[wx+.85,wy,wz+.15],[wx+.85,wy+1,wz+.15],
+                           [wx+.15,wy+1,wz+.85],[wx+.15,wy,wz+.85]],
+                   lv, lv, lv, 1, cuv);
               continue;
             }
 
@@ -393,16 +406,18 @@
               if (isAlpha && def.liquid && B[nid].liquid) continue;
               if (isAlpha && nid === id) continue;
               const lv = faceLight(lx+dx, ly+dy, lz+dz);
-              const base = dy > 0 ? def.top : dy < 0 ? def.bottom : def.col;
+              const tiles = TEX.MAP[id] || [0, 0, 0];
+              const tileIdx = dy > 0 ? tiles[0] : dy < 0 ? tiles[2]
+                : tiles[1];
               const s = shade * lv;
-              const a = def.liquid ? .62 : isAlpha ? .5 : 1;
+              const a = def.liquid ? .62 : 1;   // 유리/얼음은 타일 알파 사용
               const pts = corners.map(cn => {
                 let vy = cn[1];
                 if (def.liquid && vy === 1) vy = .85;
                 return [wx + cn[0], wy + vy, wz + cn[2]];
               });
-              quad(isAlpha ? alpha : solid, pts,
-                   base[0]*s, base[1]*s, base[2]*s, a);
+              quad(isAlpha ? alpha : solid, pts, s, s, s, a,
+                   faceUVs(tileIdx, dx, dy, dz, corners));
             }
           }
         }
@@ -411,10 +426,12 @@
       return {
         solid: solid.pos.length ? {
           pos: new Float32Array(solid.pos),
-          col: new Float32Array(solid.col) } : null,
+          col: new Float32Array(solid.col),
+          uv: new Float32Array(solid.uv) } : null,
         alpha: alpha.pos.length ? {
           pos: new Float32Array(alpha.pos),
-          col: new Float32Array(alpha.col) } : null,
+          col: new Float32Array(alpha.col),
+          uv: new Float32Array(alpha.uv) } : null,
       };
     }
 

@@ -10,12 +10,13 @@ chunk.py - 청크 데이터와 메시 생성.
 """
 
 import numpy as np
-from ursina import Entity, Mesh, Color, destroy
+from ursina import Entity, Mesh, Color, destroy, load_texture
 from panda3d.core import TransparencyAttrib
 
 import blocks as B
 import config
 import lighting
+import textures
 
 CHUNK = config.CHUNK_SIZE
 HEIGHT = config.WORLD_HEIGHT
@@ -157,7 +158,7 @@ def build_chunk_mesh(chunk, world):
         for (x, y, z) in np.argwhere(visible_a):
             bid = int(ids[x, y, z])
             bdef = B.BLOCKS[bid]
-            a = 0.62 if bdef.is_liquid else 0.5
+            a = 0.62 if bdef.is_liquid else 1.0
             _emit_face(alpha, bdef, int(x), int(y), int(z), f_idx, corners,
                        shade, _face_light(light, x, y, z, dx, dy, dz),
                        alpha=a, liquid=bdef.is_liquid)
@@ -202,29 +203,43 @@ class _MeshData:
         self.verts = []
         self.tris = []
         self.cols = []
+        self.uvs = []
 
-    def quad(self, v0, v1, v2, v3, col):
+    def quad(self, v0, v1, v2, v3, col, uv4):
         i = len(self.verts)
         self.verts.extend((v0, v1, v2, v3))
         self.tris.extend((i, i + 1, i + 2, i, i + 2, i + 3))
         self.cols.extend((col, col, col, col))
+        self.uvs.extend(uv4)
 
     def result(self):
         if not self.verts:
             return None
-        return self.verts, self.tris, self.cols
+        return self.verts, self.tris, self.cols, self.uvs
+
+
+def _face_uvs(tile_idx, f_idx, corners):
+    """면 코너 순서에 맞는 아틀라스 UV 4개."""
+    u0, v0, du, dv = textures.tile_uv(tile_idx)
+    uvs = []
+    for (cx_, cy_, cz_) in corners:
+        if f_idx in (0, 1):          # 윗면/아랫면: xz 평면
+            u, w = cx_, cz_
+        elif f_idx in (2, 3):        # +x/-x: z 가 가로, y 가 세로
+            u, w = cz_, cy_
+        else:                        # +z/-z: x 가 가로, y 가 세로
+            u, w = cx_, cy_
+        uvs.append((u0 + u * du, v0 + w * dv))
+    return uvs
 
 
 def _emit_face(md, bdef, x, y, z, f_idx, corners, shade, brightness,
                alpha=1.0, liquid=False):
-    if f_idx == 0:
-        base = bdef.top_color
-    elif f_idx == 1:
-        base = bdef.bottom_color
-    else:
-        base = bdef.color
+    tiles = textures.tiles_for(bdef.id)
+    tile_idx = tiles[0] if f_idx == 0 else tiles[2] if f_idx == 1 \
+        else tiles[1]
     s = shade * brightness
-    col = Color(base[0] * s, base[1] * s, base[2] * s, alpha)
+    col = Color(s, s, s, alpha)
     pts = []
     for (cx_, cy_, cz_) in corners:
         vy = cy_
@@ -232,61 +247,80 @@ def _emit_face(md, bdef, x, y, z, f_idx, corners, shade, brightness,
         if liquid and cy_ == 1:
             vy = 0.85
         pts.append((x + cx_, y + vy, z + cz_))
-    md.quad(pts[0], pts[1], pts[2], pts[3], col)
+    md.quad(pts[0], pts[1], pts[2], pts[3], col,
+            _face_uvs(tile_idx, f_idx, corners))
 
 
 def _emit_cross(md, bdef, x, y, z, brightness):
-    """식물류: X자 형태의 두 쿼드."""
-    c = bdef.color
-    col = Color(c[0] * brightness, c[1] * brightness, c[2] * brightness, 1)
-    md.quad((x + 0.15, y, z + 0.15), (x + 0.15, y + 0.8, z + 0.15),
-            (x + 0.85, y + 0.8, z + 0.85), (x + 0.85, y, z + 0.85), col)
-    md.quad((x + 0.85, y, z + 0.15), (x + 0.85, y + 0.8, z + 0.15),
-            (x + 0.15, y + 0.8, z + 0.85), (x + 0.15, y, z + 0.85), col)
+    """식물류: X자 형태의 두 쿼드 (알파 컷아웃 타일)."""
+    col = Color(brightness, brightness, brightness, 1)
+    u0, v0, du, dv = textures.tile_uv(textures.tiles_for(bdef.id)[1])
+    uv4 = ((u0, v0), (u0, v0 + dv), (u0 + du, v0 + dv), (u0 + du, v0))
+    md.quad((x + 0.15, y, z + 0.15), (x + 0.15, y + 1.0, z + 0.15),
+            (x + 0.85, y + 1.0, z + 0.85), (x + 0.85, y, z + 0.85),
+            col, uv4)
+    md.quad((x + 0.85, y, z + 0.15), (x + 0.85, y + 1.0, z + 0.15),
+            (x + 0.15, y + 1.0, z + 0.85), (x + 0.15, y, z + 0.85),
+            col, uv4)
 
 
 def _emit_box(md, bdef, x, y, z, brightness,
               x0, y0, z0, x1, y1, z1):
     """부분 크기 박스 (반블록/울타리/문/횃불)."""
+    tiles = textures.tiles_for(bdef.id)
     for f_idx, ((dx, dy, dz), corners, shade) in enumerate(FACES):
-        if f_idx == 0:
-            base = bdef.top_color
-        elif f_idx == 1:
-            base = bdef.bottom_color
-        else:
-            base = bdef.color
+        tile_idx = tiles[0] if f_idx == 0 else tiles[2] if f_idx == 1 \
+            else tiles[1]
         s = shade * brightness
-        col = Color(base[0] * s, base[1] * s, base[2] * s, 1)
+        col = Color(s, s, s, 1)
         pts = []
         for (cx_, cy_, cz_) in corners:
             px = x + (x1 if cx_ else x0)
             py = y + (y1 if cy_ else y0)
             pz = z + (z1 if cz_ else z0)
             pts.append((px, py, pz))
-        md.quad(pts[0], pts[1], pts[2], pts[3], col)
+        md.quad(pts[0], pts[1], pts[2], pts[3], col,
+                _face_uvs(tile_idx, f_idx, corners))
 
 
 # ---------------------------------------------------------------------------
 # 엔티티 적용
 # ---------------------------------------------------------------------------
+_ATLAS_TEX = None
+
+
+def _atlas_texture():
+    """아틀라스 텍스처 로드 (1회, 최근접 필터로 픽셀 아트 유지)."""
+    global _ATLAS_TEX
+    if _ATLAS_TEX is None:
+        textures.build()
+        _ATLAS_TEX = load_texture(textures.ATLAS_PATH)
+        if _ATLAS_TEX is not None:
+            _ATLAS_TEX.filtering = None
+    return _ATLAS_TEX
+
+
 def apply_chunk_mesh(chunk, solid_data, alpha_data, ambient=1.0):
     """정점 데이터를 ursina 엔티티로 만든다 (기존 엔티티 교체)."""
     chunk.destroy_entities()
     origin = (chunk.cx * CHUNK, 0, chunk.cz * CHUNK)
+    atlas = _atlas_texture()
 
     if solid_data:
-        verts, tris, cols = solid_data
+        verts, tris, cols, uvs = solid_data
         chunk.solid_entity = Entity(
             model=Mesh(vertices=verts, triangles=tris, colors=cols,
-                       mode='triangle', static=True),
-            position=origin, double_sided=True,
+                       uvs=uvs, mode='triangle', static=True),
+            position=origin, double_sided=True, texture=atlas,
         )
+        # 잎/식물 구멍용 알파 컷아웃
+        chunk.solid_entity.setTransparency(TransparencyAttrib.M_binary)
     if alpha_data:
-        verts, tris, cols = alpha_data
+        verts, tris, cols, uvs = alpha_data
         chunk.alpha_entity = Entity(
             model=Mesh(vertices=verts, triangles=tris, colors=cols,
-                       mode='triangle', static=True),
-            position=origin, double_sided=True,
+                       uvs=uvs, mode='triangle', static=True),
+            position=origin, double_sided=True, texture=atlas,
         )
         chunk.alpha_entity.setTransparency(TransparencyAttrib.M_alpha)
     chunk.set_ambient(ambient)

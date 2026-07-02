@@ -270,7 +270,10 @@
     $('loading').style.display = 'flex';
     setTimeout(() => {
       try {
-        if (!renderer) renderer = new Renderer(canvas);
+        if (!renderer) {
+          renderer = new Renderer(canvas);
+          renderer.setAtlas(TEX.buildCanvas());
+        }
         game = new Game(renderer, seed, mode, saveData);
         setupInput();
         $('loading').style.display = 'none';

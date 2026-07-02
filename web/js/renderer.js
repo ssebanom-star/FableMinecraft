@@ -5,32 +5,39 @@
   const VS = `
 attribute vec3 aPos;
 attribute vec4 aCol;
+attribute vec2 aUV;
 uniform mat4 uProj;
 uniform mat4 uView;
 uniform mat4 uModel;
 varying vec4 vCol;
+varying vec2 vUV;
 varying float vDist;
 void main() {
   vec4 world = uModel * vec4(aPos, 1.0);
   vec4 viewPos = uView * world;
   vDist = length(viewPos.xyz);
   vCol = aCol;
+  vUV = aUV;
   gl_Position = uProj * viewPos;
 }`;
 
   const FS = `
 precision mediump float;
 varying vec4 vCol;
+varying vec2 vUV;
 varying float vDist;
+uniform sampler2D uTex;
 uniform float uAmbient;
 uniform vec4 uTint;
 uniform vec3 uFogColor;
 uniform float uFogDensity;
 void main() {
-  vec3 c = vCol.rgb * uTint.rgb * uAmbient;
+  vec4 t = texture2D(uTex, vUV);
+  if (t.a < 0.1) discard;          // 잎/식물 알파 컷아웃
+  vec3 c = t.rgb * vCol.rgb * uTint.rgb * uAmbient;
   float fog = clamp(exp(-vDist * uFogDensity), 0.0, 1.0);
   c = mix(uFogColor, c, fog);
-  gl_FragColor = vec4(c, vCol.a * uTint.a);
+  gl_FragColor = vec4(c, t.a * vCol.a * uTint.a);
 }`;
 
   class Renderer {
@@ -61,6 +68,8 @@ void main() {
       this.prog = prog;
       this.aPos = gl.getAttribLocation(prog, 'aPos');
       this.aCol = gl.getAttribLocation(prog, 'aCol');
+      this.aUV = gl.getAttribLocation(prog, 'aUV');
+      this.uTex = gl.getUniformLocation(prog, 'uTex');
       this.uProj = gl.getUniformLocation(prog, 'uProj');
       this.uView = gl.getUniformLocation(prog, 'uView');
       this.uModel = gl.getUniformLocation(prog, 'uModel');
@@ -78,6 +87,23 @@ void main() {
       this.identity = U.mat4Identity();
       this._initCube();
       this.resize();
+    }
+
+    /** 절차적 아틀라스 캔버스를 GL 텍스처로 업로드 (최근접 필터) */
+    setAtlas(canvas) {
+      const gl = this.gl;
+      const tex = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA,
+                    gl.UNSIGNED_BYTE, canvas);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.uniform1i(this.uTex, 0);
+      this.atlasTex = tex;
     }
 
     resize() {
@@ -104,7 +130,10 @@ void main() {
         const vc = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, vc);
         gl.bufferData(gl.ARRAY_BUFFER, data.col, gl.STATIC_DRAW);
-        return { vp, vc, count: data.pos.length / 3 };
+        const vt = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vt);
+        gl.bufferData(gl.ARRAY_BUFFER, data.uv, gl.STATIC_DRAW);
+        return { vp, vc, vt, count: data.pos.length / 3 };
       };
       chunk.gpu = { solid: make(mesh.solid), alpha: make(mesh.alpha) };
     }
@@ -113,7 +142,10 @@ void main() {
       const gl = this.gl;
       for (const part of ['solid', 'alpha']) {
         const b = chunk.gpu[part];
-        if (b) { gl.deleteBuffer(b.vp); gl.deleteBuffer(b.vc); }
+        if (b) {
+          gl.deleteBuffer(b.vp); gl.deleteBuffer(b.vc);
+          gl.deleteBuffer(b.vt);
+        }
       }
       chunk.gpu = null;
     }
@@ -126,12 +158,15 @@ void main() {
       gl.bindBuffer(gl.ARRAY_BUFFER, buf.vc);
       gl.enableVertexAttribArray(this.aCol);
       gl.vertexAttribPointer(this.aCol, 4, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf.vt);
+      gl.enableVertexAttribArray(this.aUV);
+      gl.vertexAttribPointer(this.aUV, 2, gl.FLOAT, false, 0, 0);
     }
 
     // ---------- 엔티티 큐브 (몹/드롭/투사체) ----------
     _initCube() {
       const gl = this.gl;
-      const pos = [], col = [];
+      const pos = [], col = [], uvs = [];
       const FACES = [
         [0, 1, 0, [[0,1,0],[0,1,1],[1,1,1],[1,1,0]], 1.0],
         [0, -1, 0, [[0,0,0],[1,0,0],[1,0,1],[0,0,1]], .45],
@@ -145,15 +180,19 @@ void main() {
           const c = corners[o];
           pos.push(c[0] - .5, c[1] - .5, c[2] - .5);  // 중심 기준 단위 큐브
           col.push(s, s, s, 1);
+          uvs.push(0.03125, 1 - 0.03125);             // 0번 흰 타일 중앙
         }
       }
       this.cube = {
-        vp: gl.createBuffer(), vc: gl.createBuffer(), count: pos.length / 3,
+        vp: gl.createBuffer(), vc: gl.createBuffer(),
+        vt: gl.createBuffer(), count: pos.length / 3,
       };
       gl.bindBuffer(gl.ARRAY_BUFFER, this.cube.vp);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pos), gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.cube.vc);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(col), gl.STATIC_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.cube.vt);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uvs), gl.STATIC_DRAW);
     }
 
     drawCube(x, y, z, sx, sy, sz, yaw, r, g, b, a) {
